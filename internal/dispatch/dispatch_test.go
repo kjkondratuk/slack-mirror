@@ -3,7 +3,9 @@ package dispatch
 import (
 	"testing"
 
+	"github.com/kjkondratuk/slack-mirror/internal/model"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
 )
 
 func TestTSToTime(t *testing.T) {
@@ -109,5 +111,95 @@ func TestMessageToRowBotFallback(t *testing.T) {
 	}
 	if row.UserID != "B1" {
 		t.Fatalf("expected bot id fallback, got %q", row.UserID)
+	}
+}
+
+func defFilter() Filter {
+	return Filter{Skip: map[string]bool{"channel_join": true}}
+}
+
+func TestDispatchNormalMessage(t *testing.T) {
+	ev := &slackevents.MessageEvent{Channel: "C1", User: "U1", Text: "hello", TimeStamp: "1700000000.000100"}
+	act, err := Dispatch("C1", ev, defFilter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if act.Kind != model.ActionUpsert || act.TS != "1700000000.000100" || act.Message == nil {
+		t.Fatalf("got %+v", act)
+	}
+}
+
+func TestDispatchSkippedSubtype(t *testing.T) {
+	ev := &slackevents.MessageEvent{Channel: "C1", SubType: "channel_join", TimeStamp: "1700000000.000100"}
+	act, err := Dispatch("C1", ev, defFilter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if act.Kind != model.ActionSkip {
+		t.Fatalf("channel_join should skip, got %v", act.Kind)
+	}
+}
+
+func TestDispatchChannelNotAllowed(t *testing.T) {
+	ev := &slackevents.MessageEvent{Channel: "C2", Text: "x", TimeStamp: "1700000000.000100"}
+	f := Filter{Allow: map[string]bool{"C1": true}}
+	act, err := Dispatch("C2", ev, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if act.Kind != model.ActionSkip {
+		t.Fatalf("non-allowlisted channel should skip, got %v", act.Kind)
+	}
+}
+
+func TestDispatchMessageChanged(t *testing.T) {
+	// message_changed carries the original message nested under .Message (*slack.Msg);
+	// the identifying ts is the INNER message ts, not the event ts.
+	ev := &slackevents.MessageEvent{
+		Channel:        "C1",
+		SubType:        "message_changed",
+		TimeStamp:      "1700000999.000999", // event ts — must NOT be used as key
+		EventTimeStamp: "1700000999.000999",
+		Message: &slack.Msg{
+			User:      "U1",
+			Text:      "after edit",
+			Timestamp: "1700000000.000100", // original ts — the key
+			Edited:    &slack.Edited{Timestamp: "1700000999.000999"},
+		},
+	}
+	act, err := Dispatch("C1", ev, defFilter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if act.Kind != model.ActionUpsert {
+		t.Fatalf("changed should upsert, got %v", act.Kind)
+	}
+	if act.TS != "1700000000.000100" {
+		t.Fatalf("changed must key on inner ts, got %q", act.TS)
+	}
+	if act.Message == nil || act.Message.Text != "after edit" {
+		t.Fatalf("changed row wrong: %+v", act.Message)
+	}
+	if act.Message.EditedAt == nil {
+		t.Fatalf("changed row should have edited_at set")
+	}
+}
+
+func TestDispatchMessageDeleted(t *testing.T) {
+	ev := &slackevents.MessageEvent{
+		Channel:          "C1",
+		SubType:          "message_deleted",
+		TimeStamp:        "1700000999.000999",
+		DeletedTimeStamp: "1700000000.000100",
+	}
+	act, err := Dispatch("C1", ev, defFilter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if act.Kind != model.ActionDelete {
+		t.Fatalf("deleted should delete, got %v", act.Kind)
+	}
+	if act.TS != "1700000000.000100" {
+		t.Fatalf("deleted must use deleted_ts, got %q", act.TS)
 	}
 }

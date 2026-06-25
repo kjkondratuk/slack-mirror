@@ -12,6 +12,7 @@ import (
 
 	"github.com/kjkondratuk/slack-mirror/internal/model"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
 )
 
 // Filter decides which channels and subtypes are persisted.
@@ -111,4 +112,68 @@ func messageToRow(channelID string, m *slack.Msg) (model.MessageRow, error) {
 		}
 	}
 	return row, nil
+}
+
+const (
+	subtypeChanged = "message_changed"
+	subtypeDeleted = "message_deleted"
+)
+
+// msgFromEvent builds a slack.Msg from the top-level fields of a new (non-changed,
+// non-deleted) message event so it can flow through messageToRow. Note: a
+// slackevents.MessageEvent does not surface file attachments at the top level —
+// file capture is handled separately (the files package, a later milestone).
+func msgFromEvent(ev *slackevents.MessageEvent) *slack.Msg {
+	return &slack.Msg{
+		Channel:         ev.Channel,
+		User:            ev.User,
+		Text:            ev.Text,
+		Timestamp:       ev.TimeStamp,
+		ThreadTimestamp: ev.ThreadTimeStamp,
+		SubType:         ev.SubType,
+		BotID:           ev.BotID,
+	}
+}
+
+// Dispatch maps a Slack message event to an Action per design §2. channelID is
+// authoritative (from the event envelope). For message_changed the identifying
+// ts is the INNER message ts (ev.Message, a *slack.Msg); for message_deleted it
+// is ev.DeletedTimeStamp.
+func Dispatch(channelID string, ev *slackevents.MessageEvent, f Filter) (model.Action, error) {
+	if !f.ChannelAllowed(channelID) {
+		return model.Action{Kind: model.ActionSkip, ChannelID: channelID}, nil
+	}
+
+	switch ev.SubType {
+	case subtypeDeleted:
+		return model.Action{
+			Kind:      model.ActionDelete,
+			ChannelID: channelID,
+			TS:        ev.DeletedTimeStamp,
+		}, nil
+
+	case subtypeChanged:
+		inner := ev.Message // *slack.Msg (the original, edited message)
+		if inner == nil {
+			return model.Action{Kind: model.ActionSkip, ChannelID: channelID}, nil
+		}
+		if !f.SubtypePersisted(inner.SubType) {
+			return model.Action{Kind: model.ActionSkip, ChannelID: channelID, TS: inner.Timestamp}, nil
+		}
+		row, err := messageToRow(channelID, inner)
+		if err != nil {
+			return model.Action{}, err
+		}
+		return model.Action{Kind: model.ActionUpsert, ChannelID: channelID, TS: row.TS, Message: &row}, nil
+
+	default:
+		if !f.SubtypePersisted(ev.SubType) {
+			return model.Action{Kind: model.ActionSkip, ChannelID: channelID, TS: ev.TimeStamp}, nil
+		}
+		row, err := messageToRow(channelID, msgFromEvent(ev))
+		if err != nil {
+			return model.Action{}, err
+		}
+		return model.Action{Kind: model.ActionUpsert, ChannelID: channelID, TS: row.TS, Message: &row}, nil
+	}
 }
