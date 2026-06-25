@@ -4,10 +4,14 @@
 package dispatch
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kjkondratuk/slack-mirror/internal/model"
+	"github.com/slack-go/slack"
 )
 
 // Filter decides which channels and subtypes are persisted.
@@ -72,4 +76,39 @@ func tsToTime(ts string) (time.Time, error) {
 		}
 	}
 	return time.Unix(sec, nsec).UTC(), nil
+}
+
+// messageToRow builds a MessageRow from a slack.Msg — the canonical message type:
+// the inner message of a message_changed event, and the element embedded in
+// backfilled history. Raw is the JSON re-marshaling (best-effort full payload).
+func messageToRow(channelID string, m *slack.Msg) (model.MessageRow, error) {
+	posted, err := tsToTime(m.Timestamp)
+	if err != nil {
+		return model.MessageRow{}, err
+	}
+
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return model.MessageRow{}, fmt.Errorf("marshal raw: %w", err)
+	}
+
+	row := model.MessageRow{
+		ChannelID: channelID,
+		TS:        m.Timestamp,
+		ThreadTS:  m.ThreadTimestamp,
+		UserID:    m.User,
+		Text:      m.Text,
+		Subtype:   m.SubType,
+		Raw:       raw,
+		PostedAt:  posted,
+	}
+	if row.UserID == "" && m.BotID != "" {
+		row.UserID = m.BotID
+	}
+	if m.Edited != nil && m.Edited.Timestamp != "" {
+		if et, err := tsToTime(m.Edited.Timestamp); err == nil {
+			row.EditedAt = &et
+		}
+	}
+	return row, nil
 }
