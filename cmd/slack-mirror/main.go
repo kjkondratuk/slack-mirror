@@ -57,7 +57,10 @@ func main() {
 			os.Exit(1)
 		}
 	case cmdBackfill:
-		fmt.Println("backfill: not yet implemented") // replaced in Task 16
+		if err := app.Backfill(ctx, cfg, log); err != nil {
+			log.Error("backfill failed", "err", err)
+			os.Exit(1)
+		}
 	}
 }
 
