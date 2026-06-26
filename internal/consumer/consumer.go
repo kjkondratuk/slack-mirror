@@ -3,8 +3,10 @@ package consumer
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/kjkondratuk/slack-mirror/internal/dispatch"
+	"github.com/kjkondratuk/slack-mirror/internal/health"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 )
@@ -15,10 +17,11 @@ type Consumer struct {
 	resolver Resolver
 	filter   dispatch.Filter
 	log      *slog.Logger
+	state    *health.State
 }
 
-func NewConsumer(sm *socketmode.Client, store Writer, r Resolver, f dispatch.Filter, log *slog.Logger) *Consumer {
-	return &Consumer{client: sm, store: store, resolver: r, filter: f, log: log}
+func NewConsumer(sm *socketmode.Client, store Writer, r Resolver, f dispatch.Filter, log *slog.Logger, state *health.State) *Consumer {
+	return &Consumer{client: sm, store: store, resolver: r, filter: f, log: log, state: state}
 }
 
 // handleMessage maps one message event to an action and applies it.
@@ -31,7 +34,16 @@ func (c *Consumer) handleMessage(ctx context.Context, ev *slackevents.MessageEve
 	if c.log != nil {
 		c.log.Info("event", "channel", channelID, "ts", act.TS, "action", act.Kind.String())
 	}
-	return Apply(ctx, c.store, c.resolver, act)
+	if err := Apply(ctx, c.store, c.resolver, act); err != nil {
+		if c.state != nil {
+			c.state.WriteErrors.Add(1)
+		}
+		return err
+	}
+	if c.state != nil {
+		c.state.MarkEvent(time.Now())
+	}
+	return nil
 }
 
 // Run consumes Socket Mode events until ctx is cancelled. It acks each envelope
@@ -51,6 +63,14 @@ func (c *Consumer) Run(ctx context.Context) error {
 					c.log.Info("socketmode connecting")
 				case socketmode.EventTypeConnected:
 					c.log.Info("socketmode connected")
+					if c.state != nil {
+						c.state.SetConnected(true)
+					}
+				case socketmode.EventTypeDisconnect:
+					c.log.Info("socketmode disconnected")
+					if c.state != nil {
+						c.state.SetConnected(false)
+					}
 				case socketmode.EventTypeEventsAPI:
 					eventsAPI, ok := evt.Data.(slackevents.EventsAPIEvent)
 					if !ok {

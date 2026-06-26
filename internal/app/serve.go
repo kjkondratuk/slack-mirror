@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/kjkondratuk/slack-mirror/internal/config"
 	"github.com/kjkondratuk/slack-mirror/internal/consumer"
 	"github.com/kjkondratuk/slack-mirror/internal/dbconn"
 	"github.com/kjkondratuk/slack-mirror/internal/dispatch"
+	"github.com/kjkondratuk/slack-mirror/internal/health"
 	"github.com/kjkondratuk/slack-mirror/internal/resolver"
 	"github.com/kjkondratuk/slack-mirror/internal/store"
 	"github.com/slack-go/slack"
@@ -46,7 +49,16 @@ func Serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		Skip:    cfg.SkipSubtypes,
 	}
 
-	c := consumer.NewConsumer(sm, st, res, filter, log)
+	st2 := &health.State{}
+	c := consumer.NewConsumer(sm, st, res, filter, log, st2)
+
+	// Health/metrics listener — meaningful in the Cloud Run service fallback,
+	// harmless in the worker-pool deployment.
+	go func() {
+		if err := http.ListenAndServe(":"+cfg.Port, health.Handler(st2, 10*time.Minute)); err != nil {
+			log.Warn("health listener stopped", "err", err)
+		}
+	}()
 
 	// Graceful shutdown on SIGTERM/SIGINT (Cloud Run sends SIGTERM on replace).
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
