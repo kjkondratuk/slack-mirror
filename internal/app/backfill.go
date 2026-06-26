@@ -10,6 +10,7 @@ import (
 	"github.com/kjkondratuk/slack-mirror/internal/blobstore"
 	"github.com/kjkondratuk/slack-mirror/internal/config"
 	"github.com/kjkondratuk/slack-mirror/internal/dbconn"
+	"github.com/kjkondratuk/slack-mirror/internal/dispatch"
 	"github.com/kjkondratuk/slack-mirror/internal/files"
 	"github.com/kjkondratuk/slack-mirror/internal/resolver"
 	"github.com/kjkondratuk/slack-mirror/internal/store"
@@ -37,6 +38,13 @@ func Backfill(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	api := slack.New(cfg.SlackBotToken)
 
+	filter := dispatch.Filter{
+		Allow:   toSet(cfg.ChannelAllowlist),
+		Deny:    cfg.ChannelDenylist,
+		Persist: cfg.PersistSubtypes,
+		Skip:    cfg.SkipSubtypes,
+	}
+
 	var b *backfill.Backfiller
 	if cfg.FilesEnabled() {
 		blobs, err := blobstore.New(ctx, cfg)
@@ -50,12 +58,12 @@ func Backfill(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			HTTP: http.DefaultClient, Token: cfg.SlackBotToken,
 			Blobs: blobs, Store: pg, MaxBytes: cfg.FileMaxBytes, MimeAllow: cfg.FileMimeAllowlist,
 		}
-		b = backfill.NewWithFiles(api, pg, res, dl)
+		b = backfill.NewWithFiles(api, pg, res, filter, dl)
 	} else {
 		st := store.New(pool)
 		defer st.Close()
 		res := resolver.New(api, st)
-		b = backfill.New(api, st, res)
+		b = backfill.New(api, st, res, filter)
 	}
 
 	for _, ch := range cfg.ChannelAllowlist {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kjkondratuk/slack-mirror/internal/consumer"
+	"github.com/kjkondratuk/slack-mirror/internal/dispatch"
 	"github.com/kjkondratuk/slack-mirror/internal/files"
 	"github.com/kjkondratuk/slack-mirror/internal/model"
 	"github.com/slack-go/slack"
@@ -26,16 +27,17 @@ type Backfiller struct {
 	slack       HistoryClient
 	store       consumer.Writer
 	resolver    consumer.Resolver
+	filter      dispatch.Filter
 	fileHandler consumer.FileHandler
 }
 
-func New(s HistoryClient, store consumer.Writer, r consumer.Resolver) *Backfiller {
-	return &Backfiller{slack: s, store: store, resolver: r}
+func New(s HistoryClient, store consumer.Writer, r consumer.Resolver, f dispatch.Filter) *Backfiller {
+	return &Backfiller{slack: s, store: store, resolver: r, filter: f}
 }
 
 // NewWithFiles builds a backfiller that also downloads file attachments.
-func NewWithFiles(s HistoryClient, store consumer.Writer, r consumer.Resolver, fh consumer.FileHandler) *Backfiller {
-	return &Backfiller{slack: s, store: store, resolver: r, fileHandler: fh}
+func NewWithFiles(s HistoryClient, store consumer.Writer, r consumer.Resolver, f dispatch.Filter, fh consumer.FileHandler) *Backfiller {
+	return &Backfiller{slack: s, store: store, resolver: r, filter: f, fileHandler: fh}
 }
 
 // Channel pages all history for one channel within the last `days` days and
@@ -104,6 +106,9 @@ func (b *Backfiller) replies(ctx context.Context, channelID, threadTS string) er
 // upsert converts a slack.Message into a MessageRow and applies it via the
 // shared consumer.Apply path (ensures channel/user metadata first).
 func (b *Backfiller) upsert(ctx context.Context, channelID string, m *slack.Message) error {
+	if !b.filter.SubtypePersisted(m.SubType) {
+		return nil
+	}
 	posted, err := parseTS(m.Timestamp)
 	if err != nil {
 		return err

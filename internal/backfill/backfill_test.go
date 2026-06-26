@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kjkondratuk/slack-mirror/internal/dispatch"
 	"github.com/kjkondratuk/slack-mirror/internal/model"
 	"github.com/slack-go/slack"
 )
@@ -66,7 +67,7 @@ func TestBackfillPagesHistoryAndReplies(t *testing.T) {
 		},
 	}
 	st := &capStore{}
-	b := New(fh, st, noopResolver{})
+	b := New(fh, st, noopResolver{}, dispatch.Filter{})
 
 	if err := b.Channel(ctx, "C1", 90); err != nil {
 		t.Fatal(err)
@@ -82,5 +83,34 @@ func TestBackfillPagesHistoryAndReplies(t *testing.T) {
 		if !seen[ts] {
 			t.Fatalf("missing ts %s in upserts: %v", ts, seen)
 		}
+	}
+}
+
+func TestBackfillSkipsNonPersistedSubtype(t *testing.T) {
+	ctx := context.Background()
+	join := msg("1700000002.000100", "joined", "", 0)
+	join.SubType = "channel_join"
+	fh := &fakeHistory{
+		pages: []slack.GetConversationHistoryResponse{
+			{Messages: []slack.Message{
+				msg("1700000000.000100", "real", "", 0),
+				join,
+			}, HasMore: false},
+		},
+		replies: map[string][]slack.Message{},
+	}
+	st := &capStore{}
+	f := dispatch.Filter{Skip: map[string]bool{"channel_join": true}}
+	b := New(fh, st, noopResolver{}, f)
+	if err := b.Channel(ctx, "C1", 90); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range st.rows {
+		if r.TS == "1700000002.000100" {
+			t.Fatalf("channel_join message should have been skipped")
+		}
+	}
+	if len(st.rows) != 1 {
+		t.Fatalf("expected only the real message upserted, got %d", len(st.rows))
 	}
 }
