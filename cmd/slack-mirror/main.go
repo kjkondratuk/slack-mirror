@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+
+	"github.com/kjkondratuk/slack-mirror/internal/app"
+	"github.com/kjkondratuk/slack-mirror/internal/config"
 )
 
 type command int
@@ -36,10 +41,35 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: levelFromString(cfg.LogLevel)}))
+	ctx := context.Background()
+
 	switch cmd {
 	case cmdServe:
-		fmt.Println("serve: not yet implemented") // replaced in a later task
+		if err := app.Serve(ctx, cfg, log); err != nil {
+			log.Error("serve failed", "err", err)
+			os.Exit(1)
+		}
 	case cmdBackfill:
-		fmt.Println("backfill: not yet implemented") // replaced in a later task
+		fmt.Println("backfill: not yet implemented") // replaced in Task 16
+	}
+}
+
+func levelFromString(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }
