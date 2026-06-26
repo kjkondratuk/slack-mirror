@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kjkondratuk/slack-mirror/internal/consumer"
+	"github.com/kjkondratuk/slack-mirror/internal/files"
 	"github.com/kjkondratuk/slack-mirror/internal/model"
 	"github.com/slack-go/slack"
 )
@@ -22,13 +23,19 @@ type HistoryClient interface {
 }
 
 type Backfiller struct {
-	slack    HistoryClient
-	store    consumer.Writer
-	resolver consumer.Resolver
+	slack       HistoryClient
+	store       consumer.Writer
+	resolver    consumer.Resolver
+	fileHandler consumer.FileHandler
 }
 
 func New(s HistoryClient, store consumer.Writer, r consumer.Resolver) *Backfiller {
 	return &Backfiller{slack: s, store: store, resolver: r}
+}
+
+// NewWithFiles builds a backfiller that also downloads file attachments.
+func NewWithFiles(s HistoryClient, store consumer.Writer, r consumer.Resolver, fh consumer.FileHandler) *Backfiller {
+	return &Backfiller{slack: s, store: store, resolver: r, fileHandler: fh}
 }
 
 // Channel pages all history for one channel within the last `days` days and
@@ -118,7 +125,17 @@ func (b *Backfiller) upsert(ctx context.Context, channelID string, m *slack.Mess
 		}
 	}
 	act := model.Action{Kind: model.ActionUpsert, ChannelID: channelID, TS: row.TS, Message: &row}
-	return consumer.Apply(ctx, b.store, b.resolver, act)
+	if err := consumer.Apply(ctx, b.store, b.resolver, act); err != nil {
+		return err
+	}
+	if b.fileHandler != nil {
+		if refs := files.FromMsg(&m.Msg); len(refs) > 0 {
+			if err := b.fileHandler.Handle(ctx, channelID, m.Timestamp, refs); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func parseTS(ts string) (time.Time, error) {

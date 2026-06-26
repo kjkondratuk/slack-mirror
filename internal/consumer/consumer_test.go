@@ -15,7 +15,7 @@ func TestHandleMessageEventUpserts(t *testing.T) {
 	c := &Consumer{store: st, resolver: rs, filter: dispatch.Filter{}}
 
 	ev := &slackevents.MessageEvent{Channel: "C1", User: "U1", Text: "hi", TimeStamp: "1700000000.000100"}
-	if err := c.handleMessage(ctx, ev); err != nil {
+	if err := c.handleMessage(ctx, ev, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(st.upserts) != 1 {
