@@ -63,6 +63,55 @@ func TestResolverCachesChannel(t *testing.T) {
 	}
 }
 
+type flakyStore struct {
+	failChannel  bool
+	channelCalls int
+}
+
+func (f *flakyStore) UpsertChannel(_ context.Context, c model.Channel) error {
+	f.channelCalls++
+	if f.failChannel {
+		return errContext("boom")
+	}
+	return nil
+}
+func (f *flakyStore) UpsertUser(_ context.Context, u model.User) error { return nil }
+
+type errContext string
+
+func (e errContext) Error() string { return string(e) }
+
+func TestResolverRetriesAfterUpsertFailure(t *testing.T) {
+	ctx := context.Background()
+	sl := &fakeSlack{}
+	st := &flakyStore{failChannel: true}
+	r := New(sl, st)
+
+	// First call: upsert fails -> EnsureChannel returns error, id NOT marked seen.
+	if err := r.EnsureChannel(ctx, "C1"); err == nil {
+		t.Fatal("expected error from failing upsert")
+	}
+	// Recover: upsert now succeeds. Because the id was not marked seen, the resolver
+	// must retry (call conversations.info again + upsert again).
+	st.failChannel = false
+	if err := r.EnsureChannel(ctx, "C1"); err != nil {
+		t.Fatal(err)
+	}
+	if sl.convCalls != 2 {
+		t.Fatalf("expected a retry (2 conversations.info calls), got %d", sl.convCalls)
+	}
+	if st.channelCalls != 2 {
+		t.Fatalf("expected 2 upsert attempts, got %d", st.channelCalls)
+	}
+	// Now it's cached: a third call makes no further API/store calls.
+	if err := r.EnsureChannel(ctx, "C1"); err != nil {
+		t.Fatal(err)
+	}
+	if sl.convCalls != 2 {
+		t.Fatalf("expected no further API call after success, got %d", sl.convCalls)
+	}
+}
+
 func TestResolverCachesUser(t *testing.T) {
 	ctx := context.Background()
 	st := newFakeStore()

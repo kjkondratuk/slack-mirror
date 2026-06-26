@@ -42,31 +42,24 @@ func New(s InfoClient, store MetaStore) *Resolver {
 	}
 }
 
-func (r *Resolver) seenChannel(id string) bool {
+func (r *Resolver) isSeen(set map[string]bool, id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.channels[id] {
-		return true
-	}
-	r.channels[id] = true
-	return false
+	return set[id]
 }
 
-func (r *Resolver) seenUser(id string) bool {
+func (r *Resolver) markSeen(set map[string]bool, id string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.users[id] {
-		return true
-	}
-	r.users[id] = true
-	return false
+	set[id] = true
 }
 
 // EnsureChannel guarantees the channels row exists. On cache miss it calls
 // conversations.info and upserts. On API error it still upserts a stub row so
-// the FK constraint holds.
+// the FK constraint holds. The channel is only marked seen after a successful
+// upsert so that transient DB failures allow the next call to retry.
 func (r *Resolver) EnsureChannel(ctx context.Context, id string) error {
-	if id == "" || r.seenChannel(id) {
+	if id == "" || r.isSeen(r.channels, id) {
 		return nil
 	}
 	c := model.Channel{ID: id}
@@ -74,12 +67,18 @@ func (r *Resolver) EnsureChannel(ctx context.Context, id string) error {
 		c.Name = info.Name
 		c.IsPrivate = info.IsPrivate
 	}
-	return r.store.UpsertChannel(ctx, c)
+	if err := r.store.UpsertChannel(ctx, c); err != nil {
+		return err // not marked seen -> retried on the next message
+	}
+	r.markSeen(r.channels, id)
+	return nil
 }
 
 // EnsureUser guarantees a users row exists. Empty id is a no-op (system msgs).
+// The user is only marked seen after a successful upsert so that transient DB
+// failures allow the next call to retry.
 func (r *Resolver) EnsureUser(ctx context.Context, id string) error {
-	if id == "" || r.seenUser(id) {
+	if id == "" || r.isSeen(r.users, id) {
 		return nil
 	}
 	u := model.User{ID: id}
@@ -88,5 +87,9 @@ func (r *Resolver) EnsureUser(ctx context.Context, id string) error {
 		u.RealName = info.RealName
 		u.IsBot = info.IsBot
 	}
-	return r.store.UpsertUser(ctx, u)
+	if err := r.store.UpsertUser(ctx, u); err != nil {
+		return err
+	}
+	r.markSeen(r.users, id)
+	return nil
 }
