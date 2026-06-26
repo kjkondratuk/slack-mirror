@@ -27,14 +27,15 @@ func connectorDSN(c *config.Config) string {
 	return strings.Join(parts, " ")
 }
 
-// New returns a ready connection pool. Caller owns Close().
-func New(ctx context.Context, c *config.Config) (*pgxpool.Pool, error) {
+// New returns a ready connection pool and a cleanup function that closes the
+// Cloud SQL dialer (if used). Caller owns both pool.Close() and cleanup().
+func New(ctx context.Context, c *config.Config) (*pgxpool.Pool, func(), error) {
 	if useDirectURL(c) {
 		pool, err := pgxpool.New(ctx, c.DatabaseURL)
 		if err != nil {
-			return nil, fmt.Errorf("pgxpool (direct url): %w", err)
+			return nil, func() {}, fmt.Errorf("pgxpool (direct url): %w", err)
 		}
-		return pool, nil
+		return pool, func() {}, nil
 	}
 
 	var opts []cloudsqlconn.Option
@@ -43,8 +44,9 @@ func New(ctx context.Context, c *config.Config) (*pgxpool.Pool, error) {
 	}
 	dialer, err := cloudsqlconn.NewDialer(ctx, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("cloudsqlconn dialer: %w", err)
+		return nil, func() {}, fmt.Errorf("cloudsqlconn dialer: %w", err)
 	}
+	cleanup := func() { _ = dialer.Close() }
 
 	var dialOpts []cloudsqlconn.DialOption
 	if c.DBPrivateIP {
@@ -53,7 +55,8 @@ func New(ctx context.Context, c *config.Config) (*pgxpool.Pool, error) {
 
 	cfg, err := pgxpool.ParseConfig(connectorDSN(c))
 	if err != nil {
-		return nil, fmt.Errorf("parse connector dsn: %w", err)
+		cleanup()
+		return nil, func() {}, fmt.Errorf("parse connector dsn: %w", err)
 	}
 	cfg.ConnConfig.DialFunc = func(ctx context.Context, _ string, _ string) (net.Conn, error) {
 		return dialer.Dial(ctx, c.CloudSQLInstance, dialOpts...)
@@ -61,7 +64,8 @@ func New(ctx context.Context, c *config.Config) (*pgxpool.Pool, error) {
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("pgxpool (connector): %w", err)
+		cleanup()
+		return nil, func() {}, fmt.Errorf("pgxpool (connector): %w", err)
 	}
-	return pool, nil
+	return pool, cleanup, nil
 }

@@ -60,6 +60,9 @@ func Handler(s *State, staleAfter time.Duration) http.Handler {
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "events_processed_total %d\n", s.EventsProcessed.Load())
 		fmt.Fprintf(w, "db_write_errors_total %d\n", s.WriteErrors.Load())
+		if last := s.lastEventAt(); !last.IsZero() {
+			fmt.Fprintf(w, "last_event_timestamp_seconds %d\n", last.Unix())
+		}
 	})
 	return mux
 }

@@ -115,6 +115,12 @@ func (c *Consumer) Run(ctx context.Context) error {
 					if c.state != nil {
 						c.state.SetConnected(false)
 					}
+				case socketmode.EventTypeConnectionError, socketmode.EventTypeInvalidAuth,
+					socketmode.EventTypeErrorBadMessage, socketmode.EventTypeErrorWriteFailed,
+					socketmode.EventTypeIncomingError:
+					if c.log != nil {
+						c.log.Warn("socketmode error", "type", evt.Type)
+					}
 				case socketmode.EventTypeEventsAPI:
 					eventsAPI, ok := evt.Data.(slackevents.EventsAPIEvent)
 					if !ok {

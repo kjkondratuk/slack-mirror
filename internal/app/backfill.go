@@ -27,10 +27,11 @@ func Backfill(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return fmt.Errorf("backfill: CHANNEL_ALLOWLIST must list the channels to seed")
 	}
 
-	pool, err := dbconn.New(ctx, cfg)
+	pool, cleanup, err := dbconn.New(ctx, cfg)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 	defer pool.Close()
 	if err := store.Migrate(ctx, pool); err != nil {
 		return err

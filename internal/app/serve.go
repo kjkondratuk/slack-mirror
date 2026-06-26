@@ -29,10 +29,11 @@ func Serve(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		return err
 	}
 
-	pool, err := dbconn.New(ctx, cfg)
+	pool, cleanup, err := dbconn.New(ctx, cfg)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 	defer pool.Close() // always close the pool, even if Migrate fails (double-close is safe)
 	if err := store.Migrate(ctx, pool); err != nil {
 		return err
