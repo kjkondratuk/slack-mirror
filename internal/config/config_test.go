@@ -72,3 +72,29 @@ func TestValidateServeRequiresTokensAndDB(t *testing.T) {
 		t.Fatalf("valid cloudsql serve config rejected: %v", err)
 	}
 }
+
+func TestFileConfig(t *testing.T) {
+	t.Setenv("SLACK_APP_TOKEN", "x")
+	t.Setenv("SLACK_BOT_TOKEN", "y")
+	t.Setenv("DATABASE_URL", "postgres://localhost/mirror")
+
+	c, _ := Load()
+	if c.FilesEnabled() {
+		t.Fatal("files disabled by default")
+	}
+
+	t.Setenv("FILE_STORAGE", "local")
+	t.Setenv("FILE_DIR", "/tmp/blobs")
+	t.Setenv("FILE_MAX_BYTES", "1048576")
+	t.Setenv("FILE_MIME_ALLOWLIST", "image/png, application/pdf")
+	c, _ = Load()
+	if !c.FilesEnabled() {
+		t.Fatal("FILE_STORAGE=local should enable files")
+	}
+	if c.FileDir != "/tmp/blobs" || c.FileMaxBytes != 1048576 {
+		t.Fatalf("bad file cfg: %+v", c)
+	}
+	if !c.FileMimeAllowlist["image/png"] || !c.FileMimeAllowlist["application/pdf"] {
+		t.Fatalf("mime allowlist = %v", c.FileMimeAllowlist)
+	}
+}

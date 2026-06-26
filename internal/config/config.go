@@ -30,6 +30,12 @@ type Config struct {
 	BackfillDays int
 	LogLevel     string
 	Port         string
+
+	FileStorage       string // none|local|gcs
+	FileBucket        string
+	FileDir           string
+	FileMaxBytes      int64
+	FileMimeAllowlist map[string]bool
 }
 
 var defaultSkipSubtypes = []string{
@@ -69,7 +75,25 @@ func Load() (*Config, error) {
 		}
 		c.BackfillDays = n
 	}
+
+	c.FileStorage = orDefault(os.Getenv("FILE_STORAGE"), "none")
+	c.FileBucket = os.Getenv("FILE_BUCKET")
+	c.FileDir = os.Getenv("FILE_DIR")
+	c.FileMimeAllowlist = toSet(splitList(os.Getenv("FILE_MIME_ALLOWLIST")))
+	if raw := os.Getenv("FILE_MAX_BYTES"); raw != "" {
+		n, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("FILE_MAX_BYTES: %w", err)
+		}
+		c.FileMaxBytes = n
+	}
+
 	return c, nil
+}
+
+// FilesEnabled reports whether file-byte mirroring is turned on.
+func (c *Config) FilesEnabled() bool {
+	return c.FileStorage != "" && c.FileStorage != "none"
 }
 
 func (c *Config) hasDB() bool {

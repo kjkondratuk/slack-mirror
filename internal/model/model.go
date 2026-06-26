@@ -56,3 +56,26 @@ type User struct {
 	RealName string
 	IsBot    bool
 }
+
+// FileRef is the metadata extracted from a message's files[] entry.
+type FileRef struct {
+	ID          string
+	Name        string
+	Title       string
+	Mimetype    string
+	Filetype    string
+	Size        int64
+	UserID      string
+	Mode        string // hosted|external|snippet|…
+	IsExternal  bool
+	URLDownload string // url_private_download
+	Raw         []byte
+}
+
+// FileRow is the persisted file record (FileRef + storage state).
+type FileRow struct {
+	FileRef
+	StorageURI    string
+	SHA256        string
+	DownloadState string // pending|stored|skipped|failed
+}
