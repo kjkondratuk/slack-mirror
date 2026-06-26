@@ -110,3 +110,20 @@ func TestDownloadSkipsExternalOversizeAndMime(t *testing.T) {
 		}
 	}
 }
+
+func TestDownloadMarksFailedOnNon200(t *testing.T) {
+	ctx := context.Background()
+	st := newFakeFileStore()
+	hc := &http.Client{Transport: rt(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 500, Body: io.NopCloser(strings.NewReader("oops"))}, nil
+	})}
+	d := &Downloader{HTTP: hc, Token: "xoxb-test", Blobs: &fakeBlobs{}, Store: st, MaxBytes: 0, MimeAllow: nil}
+
+	refs := []model.FileRef{{ID: "F1", Mimetype: "image/png", Size: 7, URLDownload: "https://x/a.png"}}
+	if err := d.Handle(ctx, "C1", "100.1", refs); err != nil {
+		t.Fatal(err)
+	}
+	if st.states["F1"] != "failed" {
+		t.Fatalf("expected download_state=failed, got %q", st.states["F1"])
+	}
+}
