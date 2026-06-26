@@ -56,6 +56,9 @@ func (s *fakeFileStore) SetFileState(_ context.Context, id, state string) error 
 	s.states[id] = state
 	return nil
 }
+func (s *fakeFileStore) ReconcileMessageFiles(_ context.Context, _, _ string, _ []string) error {
+	return nil
+}
 
 func newDownloader(blobs *fakeBlobs, st *fakeFileStore, maxBytes int64, mime map[string]bool) *Downloader {
 	hc := &http.Client{Transport: rt(func(r *http.Request) (*http.Response, error) {

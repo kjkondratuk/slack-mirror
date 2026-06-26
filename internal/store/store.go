@@ -201,3 +201,89 @@ func (s *PgStore) SetFileState(ctx context.Context, id, state string) error {
 	}
 	return nil
 }
+
+// ReconcileMessageFiles makes the message's file edges match keepFileIDs: it
+// removes edges for files no longer attached and ref-count-GCs any file left
+// with zero edges (deleting the row + blob). Used on message edits, where an
+// edit may drop a previously-attached file.
+func (s *PgStore) ReconcileMessageFiles(ctx context.Context, channelID, messageTS string, keepFileIDs []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Edges to remove: files linked to this message but not in the keep set.
+	var removed []string
+	rows, err := tx.Query(ctx,
+		`SELECT file_id FROM message_files
+		 WHERE channel_id=$1 AND message_ts=$2 AND NOT (file_id = ANY($3))`,
+		channelID, messageTS, keepFileIDs)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		removed = append(removed, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(removed) == 0 {
+		return tx.Commit(ctx) // nothing to do
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM message_files
+		 WHERE channel_id=$1 AND message_ts=$2 AND NOT (file_id = ANY($3))`,
+		channelID, messageTS, keepFileIDs); err != nil {
+		return err
+	}
+
+	var orphanURIs, orphanIDs []string
+	orows, err := tx.Query(ctx, `
+		SELECT id, coalesce(storage_uri,'') FROM files
+		WHERE id = ANY($1)
+		  AND NOT EXISTS (SELECT 1 FROM message_files mf WHERE mf.file_id = files.id)`, removed)
+	if err != nil {
+		return err
+	}
+	for orows.Next() {
+		var id, uri string
+		if err := orows.Scan(&id, &uri); err != nil {
+			orows.Close()
+			return err
+		}
+		orphanIDs = append(orphanIDs, id)
+		if uri != "" {
+			orphanURIs = append(orphanURIs, uri)
+		}
+	}
+	orows.Close()
+	if err := orows.Err(); err != nil {
+		return err
+	}
+	if len(orphanIDs) > 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM files WHERE id = ANY($1)`, orphanIDs); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	if s.blobs != nil {
+		for _, uri := range orphanURIs {
+			if err := s.blobs.Delete(ctx, uri); err != nil {
+				return fmt.Errorf("gc blob %s: %w", uri, err)
+			}
+		}
+	}
+	return nil
+}

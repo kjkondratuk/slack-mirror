@@ -18,6 +18,7 @@ type FileStore interface {
 	LinkFile(ctx context.Context, channelID, messageTS, fileID string) error
 	SetFileStored(ctx context.Context, id, storageURI, sha256 string) error
 	SetFileState(ctx context.Context, id, state string) error
+	ReconcileMessageFiles(ctx context.Context, channelID, messageTS string, keepFileIDs []string) error
 }
 
 type Downloader struct {
@@ -29,10 +30,18 @@ type Downloader struct {
 	MimeAllow map[string]bool
 }
 
-// Handle records each file ref, links it to the message, and downloads bytes
+// Handle reconciles the message's file edges to refs, GCs any newly-orphaned
+// files, then records each ref, links it to the message, and downloads bytes
 // unless filtered. Errors on individual files are recorded as state=failed and
 // do not abort the batch.
 func (d *Downloader) Handle(ctx context.Context, channelID, messageTS string, refs []model.FileRef) error {
+	keep := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		keep = append(keep, ref.ID)
+	}
+	if err := d.Store.ReconcileMessageFiles(ctx, channelID, messageTS, keep); err != nil {
+		return err
+	}
 	for _, ref := range refs {
 		row := model.FileRow{FileRef: ref, DownloadState: "pending"}
 		if err := d.Store.UpsertFile(ctx, row); err != nil {

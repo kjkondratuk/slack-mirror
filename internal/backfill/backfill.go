@@ -134,10 +134,8 @@ func (b *Backfiller) upsert(ctx context.Context, channelID string, m *slack.Mess
 		return err
 	}
 	if b.fileHandler != nil {
-		if refs := files.FromMsg(&m.Msg); len(refs) > 0 {
-			if err := b.fileHandler.Handle(ctx, channelID, m.Timestamp, refs); err != nil {
-				return err
-			}
+		if err := b.fileHandler.Handle(ctx, channelID, m.Timestamp, files.FromMsg(&m.Msg)); err != nil {
+			return err
 		}
 	}
 	return nil

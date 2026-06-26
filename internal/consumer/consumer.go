@@ -54,12 +54,11 @@ func (c *Consumer) handleMessage(ctx context.Context, ev *slackevents.MessageEve
 		c.state.MarkEvent(time.Now())
 	}
 	// File attachments: only for upserted messages (FK requires the message row to exist).
+	// Handle is called even with zero refs so reconcile can GC files dropped by an edit.
 	if c.downloader != nil && act.Kind == model.ActionUpsert {
 		if msg := fileMsg(ev, rawPayload); msg != nil {
-			if refs := files.FromMsg(msg); len(refs) > 0 {
-				if err := c.downloader.Handle(ctx, act.ChannelID, act.TS, refs); err != nil {
-					c.log.Error("file handle", "channel", act.ChannelID, "ts", act.TS, "err", err)
-				}
+			if err := c.downloader.Handle(ctx, act.ChannelID, act.TS, files.FromMsg(msg)); err != nil {
+				c.log.Error("file handle", "channel", act.ChannelID, "ts", act.TS, "err", err)
 			}
 		}
 	}
