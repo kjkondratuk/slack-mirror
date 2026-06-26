@@ -72,6 +72,11 @@ All configuration is via environment variables.
 | `BACKFILL_DAYS` | no | `backfill`: how far back to page (default 90) |
 | `LOG_LEVEL` | no | `debug`/`info`/`warn`/`error` (default `info`) |
 | `PORT` | no | Health/metrics listener port (default `8080`) |
+| `FILE_STORAGE` | no | Enable file-byte mirroring: `none` (default) / `local` / `gcs` |
+| `FILE_BUCKET` | no | GCS bucket for file bytes when `FILE_STORAGE=gcs` |
+| `FILE_DIR` | no | Local directory for file bytes when `FILE_STORAGE=local` |
+| `FILE_MAX_BYTES` | no | Skip files larger than this many bytes (0/unset = no limit) |
+| `FILE_MIME_ALLOWLIST` | no | Comma-separated mimetypes to store; empty = all |
 
 \* Provide a database target as EITHER `DATABASE_URL` OR (`CLOUDSQL_INSTANCE` + `DB_NAME` +
 `DB_USER`). The Cloud SQL connector path uses the [Cloud SQL Go connector](https://cloud.google.com/sql/docs/postgres/connect-connectors)
@@ -101,6 +106,7 @@ oauth_config:
       - channels:read
       - groups:read
       - users:read
+      - files:read            # only needed when file mirroring (FILE_STORAGE) is enabled
 ```
 
 You need two tokens: a **bot token** (`xoxb-…`) and an **app-level token** (`xapp-…`) with
@@ -154,6 +160,44 @@ CREATE TABLE messages (
 
 Migrations are embedded in the binary and applied automatically on `serve`/`backfill`
 startup.
+
+## File attachments (optional)
+
+By default `slack-mirror` stores only message metadata; the file objects in a message's
+`files[]` are preserved inside the `raw` JSONB but the **bytes** are not downloaded. Set
+`FILE_STORAGE` to also mirror the bytes so attachments survive Slack's retention window.
+
+- `FILE_STORAGE=local` writes bytes under `FILE_DIR` (good for local/dev).
+- `FILE_STORAGE=gcs` writes bytes to the `FILE_BUCKET` Google Cloud Storage bucket.
+
+File **bytes** go to that object store; file **metadata** (name, mimetype, size, uploader,
+a `sha256`, and the storage URI) goes to a `files` table, with a `message_files` edge table
+linking each file to the messages that reference it. Bytes never enter Postgres.
+
+Enabling this requires the **`files:read`** Slack scope (see the manifest above). Optional
+filters: `FILE_MAX_BYTES` skips files above a size, `FILE_MIME_ALLOWLIST` restricts which
+mimetypes are stored. Externally-hosted files (`mode: external`) are skipped — only
+Slack-hosted bytes are downloaded.
+
+**Delete semantics:** file deletes propagate, matching messages. When a mirrored message is
+deleted in Slack, its `message_files` edges are removed, and any file left with no remaining
+references has its row and its stored bytes garbage-collected. (Slack's 90-day free-tier
+*hiding* is not a delete event, so hidden content is retained.)
+
+```sql
+CREATE TABLE files (
+    id TEXT PRIMARY KEY, name TEXT, title TEXT, mimetype TEXT, filetype TEXT,
+    size BIGINT, user_id TEXT, mode TEXT, is_external BOOLEAN,
+    storage_uri TEXT, sha256 TEXT, download_state TEXT NOT NULL DEFAULT 'pending',
+    downloaded_at TIMESTAMPTZ, raw JSONB NOT NULL, created_at TIMESTAMPTZ
+);
+CREATE TABLE message_files (
+    channel_id TEXT NOT NULL, message_ts TEXT NOT NULL,
+    file_id TEXT NOT NULL REFERENCES files(id),
+    PRIMARY KEY (channel_id, message_ts, file_id),
+    FOREIGN KEY (channel_id, message_ts) REFERENCES messages(channel_id, ts) ON DELETE CASCADE
+);
+```
 
 ## Querying
 
