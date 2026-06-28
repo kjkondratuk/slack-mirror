@@ -79,3 +79,10 @@ type FileRow struct {
 	SHA256        string
 	DownloadState string // pending|stored|skipped|failed
 }
+
+// SearchHit is one full-text search result.
+type SearchHit struct {
+	ChannelID string
+	TS        string
+	Text      string
+}
