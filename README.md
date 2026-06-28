@@ -235,6 +235,8 @@ An embedded SQLite database at `SQLITE_PATH` (default `/data/mirror.db`) — no 
 separate database server. Full-text search uses SQLite **FTS5** (BM25), kept current by
 triggers. This is the cheap, isolated option for storing a large corpus.
 
+Search uses SQLite FTS5 query syntax (so characters like `"`, `*`, `:`, and words like `NEAR`/`OR` are operators) — sanitize or quote untrusted user input before searching.
+
 ```bash
 export STORE_BACKEND=sqlite SQLITE_PATH=/data/mirror.db
 slack-mirror serve

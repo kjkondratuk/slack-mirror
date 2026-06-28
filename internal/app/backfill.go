@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/kjkondratuk/slack-mirror/internal/backfill"
 	"github.com/kjkondratuk/slack-mirror/internal/backend"
+	"github.com/kjkondratuk/slack-mirror/internal/backfill"
 	"github.com/kjkondratuk/slack-mirror/internal/blobstore"
 	"github.com/kjkondratuk/slack-mirror/internal/config"
 	"github.com/kjkondratuk/slack-mirror/internal/dispatch"
