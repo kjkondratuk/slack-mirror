@@ -58,6 +58,8 @@ All configuration is via environment variables.
 |---|---|---|
 | `SLACK_APP_TOKEN` | yes (serve) | App-level token (`xapp-…`) with `connections:write`, for Socket Mode |
 | `SLACK_BOT_TOKEN` | yes | Bot token (`xoxb-…`) — Web API calls + event payloads |
+| `STORE_BACKEND` | no | Storage backend: `postgres` (default) / `sqlite` |
+| `SQLITE_PATH` | no | SQLite DB file path when `STORE_BACKEND=sqlite` (default `/data/mirror.db`) |
 | `CHANNEL_ALLOWLIST` | no | Comma-separated channel IDs to persist; empty = all channels the bot is in (required for `backfill`) |
 | `CHANNEL_DENYLIST` | no | Comma-separated channel IDs to always ignore |
 | `PERSIST_SUBTYPES` | no | If set, ONLY these message subtypes are stored (normal messages always are) |
@@ -217,6 +219,39 @@ FROM messages
 WHERE channel_id = $1 AND thread_ts = $2
 ORDER BY ts;
 ```
+
+## Storage backends
+
+`slack-mirror` supports two storage backends, selected with `STORE_BACKEND`. Capture
+semantics, the schema, and file mirroring are identical across both — only where the data
+lives differs.
+
+### `postgres` (default)
+The existing path: Cloud SQL via the Go connector + IAM, or any Postgres via `DATABASE_URL`.
+Full-text search uses a `tsvector`/GIN index. Backfill can run as a separate concurrent job.
+
+### `sqlite`
+An embedded SQLite database at `SQLITE_PATH` (default `/data/mirror.db`) — no Cloud SQL, no
+separate database server. Full-text search uses SQLite **FTS5** (BM25), kept current by
+triggers. This is the cheap, isolated option for storing a large corpus.
+
+```bash
+export STORE_BACKEND=sqlite SQLITE_PATH=/data/mirror.db
+slack-mirror serve
+```
+
+**Durability (Litestream → GCS):** the app itself just reads/writes the local SQLite file and
+checkpoints the WAL on shutdown. To make that file durable in a bucket, run the binary under
+[Litestream](https://litestream.io), which continuously replicates the WAL to GCS and restores
+it on cold start. An optional image variant and an example config are provided:
+[`Dockerfile.litestream`](Dockerfile.litestream) and
+[`deploy/litestream.example.yml`](deploy/litestream.example.yml). Keep the actual bucket and
+Litestream config in your private deploy repo.
+
+**Single-writer:** SQLite is single-writer, so with this backend `serve` and `backfill` must
+not run at the same time against the same database — run `backfill` as a one-off while `serve`
+is stopped (or seed before first start). The Postgres backend keeps its concurrent-backfill
+behavior.
 
 ## Deploying
 
