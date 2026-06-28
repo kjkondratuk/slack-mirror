@@ -43,7 +43,10 @@ type fakeFileStore struct {
 func newFakeFileStore() *fakeFileStore {
 	return &fakeFileStore{rows: map[string]model.FileRow{}, stored: map[string][2]string{}, states: map[string]string{}}
 }
-func (s *fakeFileStore) UpsertFile(_ context.Context, r model.FileRow) error { s.rows[r.ID] = r; return nil }
+func (s *fakeFileStore) UpsertFile(_ context.Context, r model.FileRow) error {
+	s.rows[r.ID] = r
+	return nil
+}
 func (s *fakeFileStore) LinkFile(_ context.Context, ch, ts, id string) error {
 	s.links = append(s.links, [3]string{ch, ts, id})
 	return nil

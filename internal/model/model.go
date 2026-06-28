@@ -35,8 +35,8 @@ type Action struct {
 type MessageRow struct {
 	ChannelID string
 	TS        string
-	ThreadTS  string     // empty if not a thread reply
-	UserID    string     // empty for some system/bot messages
+	ThreadTS  string // empty if not a thread reply
+	UserID    string // empty for some system/bot messages
 	Text      string
 	Subtype   string     // empty for normal messages
 	Raw       []byte     // latest full message payload (JSON)

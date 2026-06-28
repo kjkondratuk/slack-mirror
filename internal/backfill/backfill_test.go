@@ -30,9 +30,9 @@ func (c *capStore) UpsertMessage(_ context.Context, m model.MessageRow) error {
 	c.rows = append(c.rows, m)
 	return nil
 }
-func (c *capStore) DeleteMessage(_ context.Context, _, _ string) error    { return nil }
+func (c *capStore) DeleteMessage(_ context.Context, _, _ string) error     { return nil }
 func (c *capStore) UpsertChannel(_ context.Context, _ model.Channel) error { return nil }
-func (c *capStore) UpsertUser(_ context.Context, _ model.User) error      { return nil }
+func (c *capStore) UpsertUser(_ context.Context, _ model.User) error       { return nil }
 func (c *capStore) Close()                                                 {}
 
 type noopResolver struct{}
