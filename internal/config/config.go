@@ -36,6 +36,9 @@ type Config struct {
 	FileDir           string
 	FileMaxBytes      int64
 	FileMimeAllowlist map[string]bool
+
+	StoreBackend string // postgres|sqlite
+	SQLitePath   string
 }
 
 var defaultSkipSubtypes = []string{
@@ -88,6 +91,9 @@ func Load() (*Config, error) {
 		c.FileMaxBytes = n
 	}
 
+	c.StoreBackend = orDefault(os.Getenv("STORE_BACKEND"), "postgres")
+	c.SQLitePath = orDefault(os.Getenv("SQLITE_PATH"), "/data/mirror.db")
+
 	return c, nil
 }
 
@@ -96,7 +102,13 @@ func (c *Config) FilesEnabled() bool {
 	return c.FileStorage != "" && c.FileStorage != "none"
 }
 
+// SqliteEnabled reports whether the SQLite backend is selected.
+func (c *Config) SqliteEnabled() bool { return c.StoreBackend == "sqlite" }
+
 func (c *Config) hasDB() bool {
+	if c.StoreBackend == "sqlite" {
+		return true // sqlite needs no external DB target
+	}
 	return c.DatabaseURL != "" || (c.CloudSQLInstance != "" && c.DBName != "" && c.DBUser != "")
 }
 

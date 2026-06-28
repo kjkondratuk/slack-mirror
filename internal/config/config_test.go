@@ -98,3 +98,38 @@ func TestFileConfig(t *testing.T) {
 		t.Fatalf("mime allowlist = %v", c.FileMimeAllowlist)
 	}
 }
+
+func TestStoreBackend(t *testing.T) {
+	t.Setenv("SLACK_APP_TOKEN", "x")
+	t.Setenv("SLACK_BOT_TOKEN", "y")
+
+	// default: postgres, and serve requires a DB target
+	t.Setenv("DATABASE_URL", "postgres://localhost/mirror")
+	c, _ := Load()
+	if c.StoreBackend != "postgres" {
+		t.Fatalf("default backend = %q, want postgres", c.StoreBackend)
+	}
+	if c.SqliteEnabled() {
+		t.Fatal("sqlite should be off by default")
+	}
+
+	// sqlite: no DB target required; SQLITE_PATH defaulted
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("STORE_BACKEND", "sqlite")
+	c, _ = Load()
+	if !c.SqliteEnabled() {
+		t.Fatal("STORE_BACKEND=sqlite should enable sqlite")
+	}
+	if c.SQLitePath != "/data/mirror.db" {
+		t.Fatalf("SQLitePath = %q, want /data/mirror.db", c.SQLitePath)
+	}
+	if err := c.ValidateServe(); err != nil {
+		t.Fatalf("sqlite serve should not require a DB target: %v", err)
+	}
+
+	t.Setenv("SQLITE_PATH", "/tmp/x.db")
+	c, _ = Load()
+	if c.SQLitePath != "/tmp/x.db" {
+		t.Fatalf("SQLitePath override = %q", c.SQLitePath)
+	}
+}
