@@ -1,14 +1,14 @@
 # Example Litestream config for the SQLite backend (STORE_BACKEND=sqlite).
 # Litestream replicates the SQLite DB to a GCS bucket and restores it on cold
-# start. Copy/mount this at deploy time and fill in your bucket. GCS auth uses
-# the runtime service account (Application Default Credentials).
-#
-# Requires Litestream >= 0.5.0: GCS uses `type: gs` (not `gcs`) and each db
-# takes a single `replica:` (not a `replicas:` list). The Dockerfile.litestream
-# image pins a 0.5.x release.
+# start. The bucket/prefix are supplied via env vars so the same generic image
+# works for any deployment (Litestream 0.5.x expands ${VARS} by default):
+#   LITESTREAM_REPLICA_BUCKET  - target GCS bucket name
+#   LITESTREAM_REPLICA_PATH    - object prefix within the bucket (e.g. "db")
+# Requires Litestream >= 0.5.0 (GCS uses `type: gs`, single `replica:`). GCS auth
+# uses the runtime service account (Application Default Credentials).
 dbs:
   - path: /data/mirror.db          # must match SQLITE_PATH
     replica:
       type: gs
-      bucket: YOUR_BUCKET
-      path: db/mirror              # object prefix within the bucket
+      bucket: ${LITESTREAM_REPLICA_BUCKET}
+      path: ${LITESTREAM_REPLICA_PATH}

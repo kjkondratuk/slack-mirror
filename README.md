@@ -247,7 +247,10 @@ checkpoints the WAL on shutdown. To make that file durable in a bucket, run the 
 [Litestream](https://litestream.io), which continuously replicates the WAL to GCS and restores
 it on cold start. An optional image variant and an example config are provided:
 [`Dockerfile.litestream`](Dockerfile.litestream) and
-[`deploy/litestream.example.yml`](deploy/litestream.example.yml). Keep the actual bucket and
+[`deploy/litestream.example.yml`](deploy/litestream.example.yml). The example config is
+env-driven — set `LITESTREAM_REPLICA_BUCKET` (target GCS bucket) and `LITESTREAM_REPLICA_PATH`
+(object prefix, e.g. `db`) in the runtime environment; Litestream 0.5.x expands them at start,
+so the generic image targets any bucket without a rebuild. Keep the actual bucket and
 Litestream config in your private deploy repo.
 
 **Single-writer:** SQLite is single-writer, so with this backend `serve` and `backfill` must
