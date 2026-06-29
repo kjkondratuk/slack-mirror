@@ -30,3 +30,19 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      - name: Litestream image metadata
+        id: meta-litestream
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/slack-mirror
+          tags: |
+            type=semver,pattern={{version}},suffix=-litestream
+            type=ref,event=tag,suffix=-litestream
+      - name: Build & push litestream image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.litestream
+          push: true
+          tags: ${{ steps.meta-litestream.outputs.tags }}
+          labels: ${{ steps.meta-litestream.outputs.labels }}
